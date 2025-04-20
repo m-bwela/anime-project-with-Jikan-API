@@ -1,0 +1,32 @@
+<%- include("partials/header.ejs") %>
+
+<div class="container">
+    <div class="details">
+      <div class="title">
+        <h1>Title: <%= random.title %></h1>
+        <p>Synopsis: <%= random.synopsis %></p>
+      </div>
+  
+      <div class="detail">
+        <div class="image">
+          <a href="/anime/<%= random.mal_id %>"><img src="<%= random.images.jpg.image_url %>"/></a>
+        </div>
+        <div class="anime-details">
+          <p>Type:<%= random.type %></p>
+          <p>Episodes:<%= random.episodes %></p>
+          <p>Status:<%= random.status %></p>
+          <p>Aired:<%= random.aired.string %></p>
+          <p>Episode duration:<%= random.duration %></p>
+          <p>Score:<%= random.score %></p>
+          <p>Rank:<%= random.rank %></p>
+          <p>Popularity:<%= random.popularity %></p>
+        </div>
+      </div>
+    </div>
+    <h3>Trailer:</h3>
+    <div class="trailer">
+      <iframe src="<%= random.trailer.embed_url %>" allowfullscreen="true" height="300" width="600" ></iframe>
+    </div>
+</div>
+
+<%- include("partials/footer.ejs") %>

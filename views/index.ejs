@@ -1,0 +1,32 @@
+<%- include("partials/header.ejs") %>
+ 
+<div class="container">
+    <div class="column">
+        <h2>Preferred Animes</h2>
+            <div class="anime-list">
+             <% if (locals.data && locals.data.length > 0) { %>
+                 <% data.forEach(anime => { %>
+                    <a class="anime-card" href="/anime/<%= anime.mal_id %>">
+                        <img src="<%= anime.images.jpg.image_url %>" alt="anime image">
+                        <p><%= anime.title %></p>
+                    </a>   
+                        <% }); %>
+     
+            <% } else if(locals.search&& locals.search.length > 0) { %>
+                <h2>Searching for: "<%= query %>"</h2>
+                <% search.forEach(anime => { %>
+                    <a class="anime-card" href="anime/<%= anime.mal_id %>">
+                            <img src="<%= anime.images.jpg.image_url %>" alt="anime image">
+                            <p><%= anime.title %></p>
+                    </a> 
+                <% }); %>
+            <% } %>
+
+        </div>
+    </div>
+    
+</div>
+
+
+ <%- include("partials/footer.ejs") %>
+    
