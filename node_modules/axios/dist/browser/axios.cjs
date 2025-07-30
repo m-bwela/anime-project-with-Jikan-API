@@ -1,4 +1,4 @@
-/*! Axios v1.8.4 Copyright (c) 2025 Matt Zabriskie and contributors */
+/*! Axios v1.11.0 Copyright (c) 2025 Matt Zabriskie and contributors */
 'use strict';
 
 function bind(fn, thisArg) {
@@ -11,6 +11,7 @@ function bind(fn, thisArg) {
 
 const {toString} = Object.prototype;
 const {getPrototypeOf} = Object;
+const {iterator, toStringTag} = Symbol;
 
 const kindOf = (cache => thing => {
     const str = toString.call(thing);
@@ -137,7 +138,28 @@ const isPlainObject = (val) => {
   }
 
   const prototype = getPrototypeOf(val);
-  return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(Symbol.toStringTag in val) && !(Symbol.iterator in val);
+  return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(toStringTag in val) && !(iterator in val);
+};
+
+/**
+ * Determine if a value is an empty object (safely handles Buffers)
+ *
+ * @param {*} val The value to test
+ *
+ * @returns {boolean} True if value is an empty object, otherwise false
+ */
+const isEmptyObject = (val) => {
+  // Early return for non-objects or Buffers to prevent RangeError
+  if (!isObject(val) || isBuffer(val)) {
+    return false;
+  }
+  
+  try {
+    return Object.keys(val).length === 0 && Object.getPrototypeOf(val) === Object.prototype;
+  } catch (e) {
+    // Fallback for any other objects that might cause RangeError with Object.keys()
+    return false;
+  }
 };
 
 /**
@@ -262,6 +284,11 @@ function forEach(obj, fn, {allOwnKeys = false} = {}) {
       fn.call(null, obj[i], i, obj);
     }
   } else {
+    // Buffer check
+    if (isBuffer(obj)) {
+      return;
+    }
+
     // Iterate over object keys
     const keys = allOwnKeys ? Object.getOwnPropertyNames(obj) : Object.keys(obj);
     const len = keys.length;
@@ -275,6 +302,10 @@ function forEach(obj, fn, {allOwnKeys = false} = {}) {
 }
 
 function findKey(obj, key) {
+  if (isBuffer(obj)){
+    return null;
+  }
+
   key = key.toLowerCase();
   const keys = Object.keys(obj);
   let i = keys.length;
@@ -488,13 +519,13 @@ const isTypedArray = (TypedArray => {
  * @returns {void}
  */
 const forEachEntry = (obj, fn) => {
-  const generator = obj && obj[Symbol.iterator];
+  const generator = obj && obj[iterator];
 
-  const iterator = generator.call(obj);
+  const _iterator = generator.call(obj);
 
   let result;
 
-  while ((result = iterator.next()) && !result.done) {
+  while ((result = _iterator.next()) && !result.done) {
     const pair = result.value;
     fn.call(obj, pair[0], pair[1]);
   }
@@ -615,7 +646,7 @@ const toFiniteNumber = (value, defaultValue) => {
  * @returns {boolean}
  */
 function isSpecCompliantForm(thing) {
-  return !!(thing && isFunction(thing.append) && thing[Symbol.toStringTag] === 'FormData' && thing[Symbol.iterator]);
+  return !!(thing && isFunction(thing.append) && thing[toStringTag] === 'FormData' && thing[iterator]);
 }
 
 const toJSONObject = (obj) => {
@@ -626,6 +657,11 @@ const toJSONObject = (obj) => {
     if (isObject(source)) {
       if (stack.indexOf(source) >= 0) {
         return;
+      }
+
+      //Buffer check
+      if (isBuffer(source)) {
+        return source;
       }
 
       if(!('toJSON' in source)) {
@@ -684,6 +720,10 @@ const asap = typeof queueMicrotask !== 'undefined' ?
 
 // *********************
 
+
+const isIterable = (thing) => thing != null && isFunction(thing[iterator]);
+
+
 var utils$1 = {
   isArray,
   isArrayBuffer,
@@ -695,6 +735,7 @@ var utils$1 = {
   isBoolean,
   isObject,
   isPlainObject,
+  isEmptyObject,
   isReadableStream,
   isRequest,
   isResponse,
@@ -739,7 +780,8 @@ var utils$1 = {
   isAsyncFn,
   isThenable,
   setImmediate: _setImmediate,
-  asap
+  asap,
+  isIterable
 };
 
 /**
@@ -956,6 +998,10 @@ function toFormData(obj, formData, options) {
 
     if (utils$1.isDate(value)) {
       return value.toISOString();
+    }
+
+    if (utils$1.isBoolean(value)) {
+      return value.toString();
     }
 
     if (!useBlob && utils$1.isBlob(value)) {
@@ -1321,7 +1367,7 @@ var platform = {
 };
 
 function toURLEncodedForm(data, options) {
-  return toFormData(data, new platform.classes.URLSearchParams(), Object.assign({
+  return toFormData(data, new platform.classes.URLSearchParams(), {
     visitor: function(value, key, path, helpers) {
       if (platform.isNode && utils$1.isBuffer(value)) {
         this.append(key, value.toString('base64'));
@@ -1329,8 +1375,9 @@ function toURLEncodedForm(data, options) {
       }
 
       return helpers.defaultVisitor.apply(this, arguments);
-    }
-  }, options));
+    },
+    ...options
+  });
 }
 
 /**
@@ -1724,10 +1771,18 @@ class AxiosHeaders {
       setHeaders(header, valueOrRewrite);
     } else if(utils$1.isString(header) && (header = header.trim()) && !isValidHeaderName(header)) {
       setHeaders(parseHeaders(header), valueOrRewrite);
-    } else if (utils$1.isHeaders(header)) {
-      for (const [key, value] of header.entries()) {
-        setHeader(value, key, rewrite);
+    } else if (utils$1.isObject(header) && utils$1.isIterable(header)) {
+      let obj = {}, dest, key;
+      for (const entry of header) {
+        if (!utils$1.isArray(entry)) {
+          throw TypeError('Object iterator must return a key-value pair');
+        }
+
+        obj[key = entry[0]] = (dest = obj[key]) ?
+          (utils$1.isArray(dest) ? [...dest, entry[1]] : [dest, entry[1]]) : entry[1];
       }
+
+      setHeaders(obj, valueOrRewrite);
     } else {
       header != null && setHeader(valueOrRewrite, header, rewrite);
     }
@@ -1867,6 +1922,10 @@ class AxiosHeaders {
 
   toString() {
     return Object.entries(this.toJSON()).map(([header, value]) => header + ': ' + value).join('\n');
+  }
+
+  getSetCookie() {
+    return this.get("set-cookie") || [];
   }
 
   get [Symbol.toStringTag]() {
@@ -2071,7 +2130,7 @@ function throttle(fn, freq) {
       clearTimeout(timer);
       timer = null;
     }
-    fn.apply(null, args);
+    fn(...args);
   };
 
   const throttled = (...args) => {
@@ -2327,7 +2386,7 @@ function mergeConfig(config1, config2) {
     headers: (a, b , prop) => mergeDeepProperties(headersToObject(a), headersToObject(b),prop, true)
   };
 
-  utils$1.forEach(Object.keys(Object.assign({}, config1, config2)), function computeConfigValue(prop) {
+  utils$1.forEach(Object.keys({...config1, ...config2}), function computeConfigValue(prop) {
     const merge = mergeMap[prop] || mergeDeepProperties;
     const configValue = merge(config1[prop], config2[prop], prop);
     (utils$1.isUndefined(configValue) && merge !== mergeDirectKeys) || (config[prop] = configValue);
@@ -2862,7 +2921,7 @@ var fetchAdapter = isFetchSupported && (async (config) => {
       credentials: isCredentialsSupported ? withCredentials : undefined
     });
 
-    let response = await fetch(request);
+    let response = await fetch(request, fetchOptions);
 
     const isStreamResponse = supportsResponseStream && (responseType === 'stream' || responseType === 'response');
 
@@ -2908,7 +2967,7 @@ var fetchAdapter = isFetchSupported && (async (config) => {
   } catch (err) {
     unsubscribe && unsubscribe();
 
-    if (err && err.name === 'TypeError' && /fetch/i.test(err.message)) {
+    if (err && err.name === 'TypeError' && /Load failed|fetch/i.test(err.message)) {
       throw Object.assign(
         new AxiosError('Network Error', AxiosError.ERR_NETWORK, config, request),
         {
@@ -3068,7 +3127,7 @@ function dispatchRequest(config) {
   });
 }
 
-const VERSION = "1.8.4";
+const VERSION = "1.11.0";
 
 const validators$1 = {};
 
@@ -3176,7 +3235,7 @@ const validators = validator.validators;
  */
 class Axios {
   constructor(instanceConfig) {
-    this.defaults = instanceConfig;
+    this.defaults = instanceConfig || {};
     this.interceptors = {
       request: new InterceptorManager$1(),
       response: new InterceptorManager$1()
@@ -3307,8 +3366,8 @@ class Axios {
 
     if (!synchronousRequestInterceptors) {
       const chain = [dispatchRequest.bind(this), undefined];
-      chain.unshift.apply(chain, requestInterceptorChain);
-      chain.push.apply(chain, responseInterceptorChain);
+      chain.unshift(...requestInterceptorChain);
+      chain.push(...responseInterceptorChain);
       len = chain.length;
 
       promise = Promise.resolve(config);

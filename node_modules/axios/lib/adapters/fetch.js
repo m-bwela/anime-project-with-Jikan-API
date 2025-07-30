@@ -167,7 +167,7 @@ export default isFetchSupported && (async (config) => {
       credentials: isCredentialsSupported ? withCredentials : undefined
     });
 
-    let response = await fetch(request);
+    let response = await fetch(request, fetchOptions);
 
     const isStreamResponse = supportsResponseStream && (responseType === 'stream' || responseType === 'response');
 
@@ -213,7 +213,7 @@ export default isFetchSupported && (async (config) => {
   } catch (err) {
     unsubscribe && unsubscribe();
 
-    if (err && err.name === 'TypeError' && /fetch/i.test(err.message)) {
+    if (err && err.name === 'TypeError' && /Load failed|fetch/i.test(err.message)) {
       throw Object.assign(
         new AxiosError('Network Error', AxiosError.ERR_NETWORK, config, request),
         {

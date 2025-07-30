@@ -1,4 +1,4 @@
-/*! Axios v1.8.4 Copyright (c) 2025 Matt Zabriskie and contributors */
+/*! Axios v1.11.0 Copyright (c) 2025 Matt Zabriskie and contributors */
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
   typeof define === 'function' && define.amd ? define(factory) :
@@ -681,6 +681,8 @@
 
   var toString = Object.prototype.toString;
   var getPrototypeOf = Object.getPrototypeOf;
+  var iterator = Symbol.iterator,
+    toStringTag = Symbol.toStringTag;
   var kindOf = function (cache) {
     return function (thing) {
       var str = toString.call(thing);
@@ -813,7 +815,27 @@
       return false;
     }
     var prototype = getPrototypeOf(val);
-    return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(Symbol.toStringTag in val) && !(Symbol.iterator in val);
+    return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(toStringTag in val) && !(iterator in val);
+  };
+
+  /**
+   * Determine if a value is an empty object (safely handles Buffers)
+   *
+   * @param {*} val The value to test
+   *
+   * @returns {boolean} True if value is an empty object, otherwise false
+   */
+  var isEmptyObject = function isEmptyObject(val) {
+    // Early return for non-objects or Buffers to prevent RangeError
+    if (!isObject(val) || isBuffer(val)) {
+      return false;
+    }
+    try {
+      return Object.keys(val).length === 0 && Object.getPrototypeOf(val) === Object.prototype;
+    } catch (e) {
+      // Fallback for any other objects that might cause RangeError with Object.keys()
+      return false;
+    }
   };
 
   /**
@@ -940,6 +962,11 @@
         fn.call(null, obj[i], i, obj);
       }
     } else {
+      // Buffer check
+      if (isBuffer(obj)) {
+        return;
+      }
+
       // Iterate over object keys
       var keys = allOwnKeys ? Object.getOwnPropertyNames(obj) : Object.keys(obj);
       var len = keys.length;
@@ -951,6 +978,9 @@
     }
   }
   function findKey(obj, key) {
+    if (isBuffer(obj)) {
+      return null;
+    }
     key = key.toLowerCase();
     var keys = Object.keys(obj);
     var i = keys.length;
@@ -1165,10 +1195,10 @@
    * @returns {void}
    */
   var forEachEntry = function forEachEntry(obj, fn) {
-    var generator = obj && obj[Symbol.iterator];
-    var iterator = generator.call(obj);
+    var generator = obj && obj[iterator];
+    var _iterator = generator.call(obj);
     var result;
-    while ((result = iterator.next()) && !result.done) {
+    while ((result = _iterator.next()) && !result.done) {
       var pair = result.value;
       fn.call(obj, pair[0], pair[1]);
     }
@@ -1275,7 +1305,7 @@
    * @returns {boolean}
    */
   function isSpecCompliantForm(thing) {
-    return !!(thing && isFunction(thing.append) && thing[Symbol.toStringTag] === 'FormData' && thing[Symbol.iterator]);
+    return !!(thing && isFunction(thing.append) && thing[toStringTag] === 'FormData' && thing[iterator]);
   }
   var toJSONObject = function toJSONObject(obj) {
     var stack = new Array(10);
@@ -1283,6 +1313,11 @@
       if (isObject(source)) {
         if (stack.indexOf(source) >= 0) {
           return;
+        }
+
+        //Buffer check
+        if (isBuffer(source)) {
+          return source;
         }
         if (!('toJSON' in source)) {
           stack[i] = source;
@@ -1331,6 +1366,9 @@
 
   // *********************
 
+  var isIterable = function isIterable(thing) {
+    return thing != null && isFunction(thing[iterator]);
+  };
   var utils$1 = {
     isArray: isArray,
     isArrayBuffer: isArrayBuffer,
@@ -1342,6 +1380,7 @@
     isBoolean: isBoolean,
     isObject: isObject,
     isPlainObject: isPlainObject,
+    isEmptyObject: isEmptyObject,
     isReadableStream: isReadableStream,
     isRequest: isRequest,
     isResponse: isResponse,
@@ -1387,7 +1426,8 @@
     isAsyncFn: isAsyncFn,
     isThenable: isThenable,
     setImmediate: _setImmediate,
-    asap: asap
+    asap: asap,
+    isIterable: isIterable
   };
 
   /**
@@ -1579,6 +1619,9 @@
       if (value === null) return '';
       if (utils$1.isDate(value)) {
         return value.toISOString();
+      }
+      if (utils$1.isBoolean(value)) {
+        return value.toString();
       }
       if (!useBlob && utils$1.isBlob(value)) {
         throw new AxiosError('Blob is not supported. Use a Buffer instead.');
@@ -1898,7 +1941,7 @@
   var platform = _objectSpread2(_objectSpread2({}, utils), platform$1);
 
   function toURLEncodedForm(data, options) {
-    return toFormData(data, new platform.classes.URLSearchParams(), Object.assign({
+    return toFormData(data, new platform.classes.URLSearchParams(), _objectSpread2({
       visitor: function visitor(value, key, path, helpers) {
         if (platform.isNode && utils$1.isBuffer(value)) {
           this.append(key, value.toString('base64'));
@@ -2227,21 +2270,26 @@
           setHeaders(header, valueOrRewrite);
         } else if (utils$1.isString(header) && (header = header.trim()) && !isValidHeaderName(header)) {
           setHeaders(parseHeaders(header), valueOrRewrite);
-        } else if (utils$1.isHeaders(header)) {
-          var _iterator = _createForOfIteratorHelper(header.entries()),
+        } else if (utils$1.isObject(header) && utils$1.isIterable(header)) {
+          var obj = {},
+            dest,
+            key;
+          var _iterator = _createForOfIteratorHelper(header),
             _step;
           try {
             for (_iterator.s(); !(_step = _iterator.n()).done;) {
-              var _step$value = _slicedToArray(_step.value, 2),
-                key = _step$value[0],
-                value = _step$value[1];
-              setHeader(value, key, rewrite);
+              var entry = _step.value;
+              if (!utils$1.isArray(entry)) {
+                throw TypeError('Object iterator must return a key-value pair');
+              }
+              obj[key = entry[0]] = (dest = obj[key]) ? utils$1.isArray(dest) ? [].concat(_toConsumableArray(dest), [entry[1]]) : [dest, entry[1]] : entry[1];
             }
           } catch (err) {
             _iterator.e(err);
           } finally {
             _iterator.f();
           }
+          setHeaders(obj, valueOrRewrite);
         } else {
           header != null && setHeader(valueOrRewrite, header, rewrite);
         }
@@ -2371,6 +2419,11 @@
             value = _ref2[1];
           return header + ': ' + value;
         }).join('\n');
+      }
+    }, {
+      key: "getSetCookie",
+      value: function getSetCookie() {
+        return this.get("set-cookie") || [];
       }
     }, {
       key: _Symbol$toStringTag,
@@ -2557,7 +2610,7 @@
         clearTimeout(timer);
         timer = null;
       }
-      fn.apply(null, args);
+      fn.apply(void 0, _toConsumableArray(args));
     };
     var throttled = function throttled() {
       var now = Date.now();
@@ -2805,7 +2858,7 @@
         return mergeDeepProperties(headersToObject(a), headersToObject(b), prop, true);
       }
     };
-    utils$1.forEach(Object.keys(Object.assign({}, config1, config2)), function computeConfigValue(prop) {
+    utils$1.forEach(Object.keys(_objectSpread2(_objectSpread2({}, config1), config2)), function computeConfigValue(prop) {
       var merge = mergeMap[prop] || mergeDeepProperties;
       var configValue = merge(config1[prop], config2[prop], prop);
       utils$1.isUndefined(configValue) && merge !== mergeDirectKeys || (config[prop] = configValue);
@@ -3482,7 +3535,7 @@
               credentials: isCredentialsSupported ? withCredentials : undefined
             }));
             _context4.next = 20;
-            return fetch(request);
+            return fetch(request, fetchOptions);
           case 20:
             response = _context4.sent;
             isStreamResponse = supportsResponseStream && (responseType === 'stream' || responseType === 'response');
@@ -3521,7 +3574,7 @@
             _context4.prev = 33;
             _context4.t2 = _context4["catch"](4);
             unsubscribe && unsubscribe();
-            if (!(_context4.t2 && _context4.t2.name === 'TypeError' && /fetch/i.test(_context4.t2.message))) {
+            if (!(_context4.t2 && _context4.t2.name === 'TypeError' && /Load failed|fetch/i.test(_context4.t2.message))) {
               _context4.next = 38;
               break;
             }
@@ -3658,7 +3711,7 @@
     });
   }
 
-  var VERSION = "1.8.4";
+  var VERSION = "1.11.0";
 
   var validators$1 = {};
 
@@ -3754,7 +3807,7 @@
   var Axios = /*#__PURE__*/function () {
     function Axios(instanceConfig) {
       _classCallCheck(this, Axios);
-      this.defaults = instanceConfig;
+      this.defaults = instanceConfig || {};
       this.interceptors = {
         request: new InterceptorManager$1(),
         response: new InterceptorManager$1()
